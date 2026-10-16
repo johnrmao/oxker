@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, Event},
+    event::{self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, Event},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -24,6 +24,7 @@ mod color_match;
 mod draw_blocks;
 mod gui_state;
 mod redraw;
+mod selection;
 pub use redraw::Rerender;
 
 pub use self::color_match::*;
@@ -54,16 +55,38 @@ pub struct Ui {
 }
 
 impl Ui {
-    /// Enable mouse capture, but don't enable capture of all the mouse movements, doing so will improve performance, and is part of the fix for the weird mouse event output bug
+    /// Enable mouse capture. `?1002h` additionally reports motion whilst a
+    /// button is held, which is what makes drag-to-select possible; capture of
+    /// *all* movement (`?1003h`) is still avoided, as that hurts performance
+    /// and is part of the fix for the weird mouse event output bug
     pub fn enable_mouse_capture() -> Result<()> {
         Ok(io::stdout().write_all(
             concat!(
                 crossterm::csi!("?1000h"),
+                crossterm::csi!("?1002h"),
                 crossterm::csi!("?1015h"),
                 crossterm::csi!("?1006h"),
             )
             .as_bytes(),
         )?)
+    }
+
+    /// Hand any completed selection to the terminal's clipboard. Done between
+    /// frames, never mid-render, so the escape can't land inside a frame's
+    /// output. OSC 52 is used so this still works over ssh or in a multiplexer.
+    fn write_clipboard(&mut self) {
+        let text = self.gui_state.lock().take_clipboard();
+        if let Some(text) = text {
+            let lines = text.lines().count();
+            let mut stdout = io::stdout();
+            if stdout.write_all(selection::osc52(&text).as_bytes()).is_ok() {
+                stdout.flush().ok();
+                self.gui_state.lock().set_info_box(&format!(
+                    "copied {lines} line{}",
+                    if lines == 1 { "" } else { "s" }
+                ));
+            }
+        }
     }
 
     /// Create a new Ui struct, and execute the drawing loop
@@ -110,7 +133,7 @@ impl Ui {
     fn init_terminal() -> Result<Stdout> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
         Self::enable_mouse_capture()?;
         Ok(stdout)
     }
@@ -122,6 +145,7 @@ impl Ui {
         execute!(
             self.terminal.backend_mut(),
             LeaveAlternateScreen,
+            DisableBracketedPaste,
             DisableMouseCapture
         )?;
         disable_raw_mode()?;
@@ -246,6 +270,7 @@ impl Ui {
                 {
                     return Err(AppError::Terminal);
                 }
+                self.write_clipboard();
             }
 
             if crossterm::event::poll(POLL_RATE).unwrap_or(false)
@@ -261,6 +286,8 @@ impl Ui {
                 } else if let Event::Mouse(m) = event {
                     match m.kind {
                         event::MouseEventKind::Down(_)
+                        | event::MouseEventKind::Up(_)
+                        | event::MouseEventKind::Drag(_)
                         | event::MouseEventKind::ScrollDown
                         | event::MouseEventKind::ScrollUp => {
                             self.input_tx
@@ -270,6 +297,8 @@ impl Ui {
                         }
                         _ => (),
                     }
+                } else if let Event::Paste(text) = event {
+                    self.input_tx.send(InputMessages::Paste(text)).await.ok();
                 } else if let Event::Resize(width, _) = event {
                     self.gui_state.lock().clear_area_map();
                     self.terminal.autoresize().ok();
@@ -454,7 +483,7 @@ fn draw_frame(
             // and the container's logs once it isn't
             let main_pane = |rect, f: &mut Frame| {
                 if fd.shell_visible {
-                    draw_blocks::shell::draw(app_data, rect, colors, f, fd, keymap);
+                    draw_blocks::shell::draw(app_data, rect, colors, f, fd, gui_state, keymap);
                 } else {
                     draw_blocks::logs::draw(app_data, rect, colors, f, fd, gui_state);
                 }
@@ -468,7 +497,7 @@ fn draw_frame(
                     .constraints(draw_blocks::CONSTRAINT_50_50)
                     .split(containers_logs_section[1]);
                 main_pane(log_activity[0], f);
-                draw_blocks::activity::draw(log_activity[1], colors, f, fd);
+                draw_blocks::activity::draw(log_activity[1], colors, f, fd, gui_state);
             } else {
                 main_pane(containers_logs_section[1], f);
             }
@@ -526,4 +555,8 @@ fn draw_frame(
     if let Some(error) = fd.has_error.as_ref() {
         draw_blocks::error::draw(colors, error, f, None, keymap, None);
     }
+
+    // The frame is done, so the panes it registered as text-selectable are now
+    // a complete set and safe for a mouse press to be tested against
+    gui_state.lock().commit_select_areas();
 }

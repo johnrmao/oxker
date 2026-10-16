@@ -2,14 +2,17 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use ratatui::{
+    Frame,
     layout::{Constraint, Rect},
-    style::Style,
+    style::{Modifier, Style},
     widgets::{Block, BorderType, Borders},
 };
 
 use crate::config::AppColors;
 
-use super::{FrameData, GuiState, SelectablePanel, Status, gui_state::Region};
+use super::{
+    FrameData, GuiState, SelectablePanel, Status, gui_state::Region, selection::SelectPane,
+};
 
 pub mod activity;
 pub mod chart_bandwidth;
@@ -78,6 +81,42 @@ pub fn max_line_width(text: &str) -> usize {
         .map(|i| i.chars().count())
         .max()
         .unwrap_or_default()
+}
+
+/// Register a pane as selectable with the mouse, then show any selection in it.
+///
+/// Call this *after* the pane's own widget has been rendered: it reverses the
+/// selected cells in the finished buffer, which works whatever drew them, and
+/// reads the text back out of those same cells so that what is copied is
+/// exactly what is on screen.
+pub fn draw_selection(
+    area: Rect,
+    f: &mut Frame,
+    gui_state: &Arc<Mutex<GuiState>>,
+    pane: SelectPane,
+) {
+    // The interior, i.e. excluding the border the pane drew
+    let inner = Block::default().borders(Borders::ALL).inner(area);
+    gui_state.lock().set_select_area(pane, inner);
+
+    let Some(selection) = gui_state.lock().get_selection(pane) else {
+        return;
+    };
+
+    for y in inner.top()..inner.bottom() {
+        for x in inner.left()..inner.right() {
+            if selection.contains(x, y, inner)
+                && let Some(cell) = f.buffer_mut().cell_mut((x, y))
+            {
+                cell.modifier.toggle(Modifier::REVERSED);
+            }
+        }
+    }
+
+    if selection.copy_pending {
+        let text = selection.extract(f.buffer_mut(), inner);
+        gui_state.lock().selection_copied(text);
+    }
 }
 /// Generate block, add a border if is the selected panel,
 /// add custom title based on state of each panel

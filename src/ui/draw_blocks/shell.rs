@@ -14,7 +14,7 @@ use crate::{
     app_data::AppData,
     config::{AppColors, Keymap},
     shell::DETACH_TEXT,
-    ui::FrameData,
+    ui::{FrameData, GuiState, selection::SelectPane},
 };
 
 /// Build the pane's border, titled with the container name on the left and the
@@ -62,6 +62,7 @@ pub fn draw(
     colors: AppColors,
     f: &mut Frame,
     fd: &FrameData,
+    gui_state: &Arc<Mutex<GuiState>>,
     keymap: &Keymap,
 ) {
     let block = block(colors, fd, keymap);
@@ -88,6 +89,8 @@ pub fn draw(
             .alignment(Alignment::Center);
         f.render_widget(paragraph, area);
     }
+
+    super::draw_selection(area, f, gui_state, SelectPane::Shell);
 }
 
 #[cfg(test)]
@@ -111,7 +114,15 @@ mod tests {
         setup
             .terminal
             .draw(|f| {
-                super::draw(&setup.app_data, setup.area, colors, f, &setup.fd, &keymap);
+                super::draw(
+                    &setup.app_data,
+                    setup.area,
+                    colors,
+                    f,
+                    &setup.fd,
+                    &setup.gui_state,
+                    &keymap,
+                );
             })
             .unwrap();
 
@@ -139,7 +150,15 @@ mod tests {
         setup
             .terminal
             .draw(|f| {
-                super::draw(&setup.app_data, setup.area, colors, f, &setup.fd, &keymap);
+                super::draw(
+                    &setup.app_data,
+                    setup.area,
+                    colors,
+                    f,
+                    &setup.fd,
+                    &setup.gui_state,
+                    &keymap,
+                );
             })
             .unwrap();
 
@@ -164,7 +183,15 @@ mod tests {
         setup
             .terminal
             .draw(|f| {
-                super::draw(&setup.app_data, setup.area, colors, f, &setup.fd, &keymap);
+                super::draw(
+                    &setup.app_data,
+                    setup.area,
+                    colors,
+                    f,
+                    &setup.fd,
+                    &setup.gui_state,
+                    &keymap,
+                );
             })
             .unwrap();
 

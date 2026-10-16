@@ -74,19 +74,23 @@ impl InputHandler {
 
                     if contains(Status::DeleteConfirm) {
                         self.button_intersect(mouse_event).await;
-                    } else if contains(Status::Shell) {
-                        // Whilst attached the pane belongs to the shell, so
-                        // scrolling or clicking must not move oxker's panels
                     } else if !contains(Status::Error)
                         && !contains(Status::Help)
-                        && !contains(Status::DeleteConfirm)
                         && !contains(Status::Filter)
                         && !contains(Status::SearchLogs)
                     {
-                        // TODO handle state where you want to scroll log search results with the mouse wheel
-                        self.mouse_press(mouse_event, modifider).await;
+                        // Text selection is handled even whilst attached to the
+                        // shell - you usually want to copy output you have just
+                        // produced - but panel changes and scrolling are not,
+                        // since whilst attached the pane belongs to the shell.
+                        let consumed = self.mouse_selection(mouse_event);
+                        if !consumed && !contains(Status::Shell) {
+                            // TODO handle state where you want to scroll log search results with the mouse wheel
+                            self.mouse_press(mouse_event, modifider).await;
+                        }
                     }
                 }
+                InputMessages::Paste(text) => self.paste(&text),
             }
         }
     }
@@ -662,6 +666,9 @@ impl InputHandler {
             self.shell_detach();
             return;
         }
+        // Typing scrolls the shell, which would leave a highlight sitting over
+        // content that is no longer the content that was selected
+        self.gui_state.lock().selection_clear();
         let data = self.app_data.lock();
         if data.shell.alive() {
             if let Some(bytes) = key_to_bytes(key_code, modifier) {
@@ -848,6 +855,45 @@ impl InputHandler {
                 self.handle_inspect(key_code, key_modifier);
             } else {
                 self.handle_others(key_code, key_modifier).await;
+            }
+        }
+    }
+
+    /// Drive a text selection from the mouse. Returns true if the event was
+    /// consumed, i.e. it belonged to a selection and nothing else should act on
+    /// it. A press is never consumed: clicking a pane should still focus it, and
+    /// a click with no drag just clears whatever was selected before.
+    fn mouse_selection(&self, mouse_event: MouseEvent) -> bool {
+        let point = (mouse_event.column, mouse_event.row);
+        match mouse_event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.gui_state.lock().selection_start(point.0, point.1);
+                false
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                self.gui_state.lock().selection_drag(point.0, point.1);
+                true
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                self.gui_state.lock().selection_finish();
+                true
+            }
+            // Scrolling moves the content out from under a selection, so drop it
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                self.gui_state.lock().selection_clear();
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// Pasted text goes to the shell when attached; nothing else in oxker takes
+    /// a paste, so elsewhere it is dropped
+    fn paste(&self, text: &str) {
+        if self.gui_state.lock().get_status().contains(&Status::Shell) {
+            let data = self.app_data.lock();
+            if data.shell.alive() {
+                data.shell.send_paste(text);
             }
         }
     }

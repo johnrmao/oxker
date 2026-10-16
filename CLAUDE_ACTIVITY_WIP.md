@@ -1,6 +1,6 @@
 # oxker fork notes
 
-Three additions on top of oxker v0.13.4:
+Four additions on top of oxker v0.13.4:
 
 1. **claude-activity pane** — a second log pane per container showing the
    command + output of `docker exec` calls made into it.
@@ -8,12 +8,16 @@ Three additions on top of oxker v0.13.4:
    interactive shell attached to it, rendered in place.
 3. **Colour-coded log timestamps** — the leading timestamp on each log line is
    styled separately from the log content.
+4. **Pane-scoped mouse selection** — drag to select inside one pane, copy on
+   release, and paste into the attached shell.
 
 ## Status: WORKING
-- `cargo build`, `cargo test` (231), `cargo clippy --all-targets`, `cargo fmt` all pass.
+- `cargo build`, `cargo test` (238), `cargo clippy --all-targets`, `cargo fmt` all pass.
 - Verified live via tmux capture against the `kali` container: shell prompt,
   typed commands, `ls --color` output, attach/detach, the `t` toggle back to
-  logs, and the coloured timestamp all render correctly.
+  logs, and the coloured timestamp all render correctly. Drag-select copies
+  only the dragged pane (clamped at its edge, no borders, no neighbouring
+  pane), and single- and multi-line pastes reach the shell intact.
 
 ## 1. claude-activity pane
 - Host side: `~/.local/bin/docker` is a transparent wrapper (ahead of
@@ -55,22 +59,53 @@ Three additions on top of oxker v0.13.4:
 - Same file sets `timestamp_format = "%Y-%m-%dT%H:%M:%S"` — seconds, no
   fractional part.
 
+## 4. Pane-scoped mouse selection
+- The problem: oxker grabs the mouse, so the terminal's own selection is both
+  unavailable and the wrong shape - it can only take full-width rows spanning
+  every pane side by side.
+- Selection now happens inside oxker, clipped to one pane's interior. Drag with
+  the left button in the shell, activity or logs pane; the selection is
+  linewise, the same shape a terminal gives you. Release copies.
+- Text is read back out of the *rendered buffer*, so what is copied is exactly
+  what is on screen - no second guess at how a pane wrapped its content, and it
+  works the same for all three panes whatever drew them.
+- The clipboard is set with OSC 52, so it still works over ssh and inside a
+  multiplexer. An info box confirms how many lines were copied.
+- `?1002h` is now enabled alongside the existing mouse modes, which is what
+  reports motion whilst a button is held. All-motion (`?1003h`) is still off.
+- Selection works whilst attached to the shell too - you usually want to copy
+  output you just produced. A plain click still focuses a panel; scrolling or
+  typing drops the selection, as the content moves out from under it.
+- Pastes arrive as bracketed pastes and are forwarded whole to the shell,
+  re-bracketed only if the program on the far end turned bracketed paste on.
+- Panes register themselves as selectable while drawing, into a pending set
+  that is published only once the frame is complete, so a press is never
+  tested against a half-built set of panes.
+
 ## Files changed in the fork
 - `src/app_data/activity.rs` (new): `ActivityState` tailer + unit tests.
 - `src/shell.rs` (new): `ShellManager`, the session/exec lifecycle, the
   crossterm-key → TTY-bytes encoder, + unit tests.
 - `src/ui/draw_blocks/activity.rs`, `src/ui/draw_blocks/shell.rs` (new) + both
   registered in `draw_blocks/mod.rs`.
+- `src/ui/selection.rs` (new): the `Selection` shape, buffer text extraction,
+  OSC 52 + base64, with unit tests.
+- `src/ui/draw_blocks/mod.rs`: `draw_selection`, called by all three panes.
+- `src/ui/gui_state.rs`: the selection, the pane registry, clipboard handoff.
 - `src/app_data/mod.rs`: `activity`/`shell` fields, coloured timestamp spans.
 - `src/ui/mod.rs`: FrameData gains the activity + shell fields; `draw_frame`
   picks shell vs logs for the main pane and splits off the activity pane.
-- `src/input_handler/mod.rs`: `handle_shell`, the attach/toggle keys, and the
-  guards that stop `q`/`ctrl + c`/mouse acting on oxker whilst attached.
+- `src/input_handler/mod.rs`: `handle_shell`, the attach/toggle keys, the
+  guards that stop `q`/`ctrl + c`/mouse acting on oxker whilst attached, plus
+  `mouse_selection` and `paste`.
+- `src/input_handler/message.rs`: `InputMessages::Paste`.
 - `src/config/keymap_parser.rs`: `shell_attach` (`a`), `shell_toggle` (`t`).
 - `src/config/color_parser.rs`: `logs.timestamp`.
 - `src/ui/gui_state.rs`: `Status::Shell`.
 - `src/ui/draw_blocks/help.rs`: both new keys in the help panel.
 - `src/main.rs`: `activity_init` + `shell::run` tasks.
+- `src/ui/mod.rs`: `?1002h`, bracketed paste, drag/release/paste event
+  forwarding, `write_clipboard`.
 - `Cargo.toml`: `tui-term`, `vt100`.
 
 ## Build / install / run
@@ -81,5 +116,5 @@ Three additions on top of oxker v0.13.4:
 
 ## Possible next steps
 - Scrollback in the shell and activity panes (both are tail views).
-- Forward mouse events to the shell whilst attached.
+- Block/rectangular selection on a modifier, for copying columns.
 - Opt the activity pane in via a Docker label instead of mirror.conf.

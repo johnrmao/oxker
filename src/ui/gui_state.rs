@@ -13,7 +13,10 @@ use crate::{
     exec::ExecMode,
 };
 
-use super::Rerender;
+use super::{
+    Rerender,
+    selection::{SelectPane, Selection},
+};
 
 #[derive(Debug, Default, Clone, Copy, Eq, Hash, PartialEq)]
 pub enum SelectablePanel {
@@ -199,6 +202,14 @@ pub struct GuiState {
     selected_panel: SelectablePanel,
     screen_width: u16,
     show_logs: bool,
+    /// Interior rect of each selectable-text pane, as of the last whole frame
+    select_areas: HashMap<SelectPane, Rect>,
+    /// Panes registered so far by the frame currently being drawn
+    select_areas_pending: HashMap<SelectPane, Rect>,
+    /// The in-progress or just-finished mouse selection
+    selection: Option<Selection>,
+    /// Text waiting to be handed to the terminal's clipboard
+    clipboard: Option<String>,
     inspect_offset: ScrollOffset,
     inspect_offset_max: ScrollOffset,
     status: HashSet<Status>,
@@ -224,8 +235,84 @@ impl GuiState {
             rerender: Arc::clone(redraw),
             selected_panel: SelectablePanel::default(),
             show_logs,
+            select_areas: HashMap::new(),
+            select_areas_pending: HashMap::new(),
+            selection: None,
+            clipboard: None,
             status: HashSet::new(),
         }
+    }
+
+    /// Record a pane's interior as it is drawn, so a mouse press can be mapped
+    /// back to the pane it landed in. Held aside until the frame is complete,
+    /// so a press is never tested against a half-built set of panes.
+    pub fn set_select_area(&mut self, pane: SelectPane, inner: Rect) {
+        self.select_areas_pending.insert(pane, inner);
+    }
+
+    /// Publish the panes the finished frame drew, dropping any it did not -
+    /// the shell and logs panes share a slot, so only one is ever live.
+    pub fn commit_select_areas(&mut self) {
+        self.select_areas = std::mem::take(&mut self.select_areas_pending);
+    }
+
+    /// Begin a selection if the press landed inside a pane that supports it.
+    /// Returns true if it did, so the caller knows not to treat the press as a
+    /// panel change as well.
+    pub fn selection_start(&mut self, x: u16, y: u16) -> bool {
+        let hit = self
+            .select_areas
+            .iter()
+            .find(|(_, area)| area.contains((x, y).into()))
+            .map(|(pane, _)| *pane);
+        self.selection = hit.map(|pane| Selection::new(pane, (x, y)));
+        self.rerender.update_draw();
+        hit.is_some()
+    }
+
+    /// Extend the current selection to the dragged-to cell
+    pub fn selection_drag(&mut self, x: u16, y: u16) {
+        if let Some(selection) = self.selection.as_mut() {
+            selection.drag_to((x, y));
+            self.rerender.update_draw();
+        }
+    }
+
+    /// Finish a selection. An empty one (a plain click) is dropped rather than
+    /// left on screen, and only a real drag asks for a copy.
+    pub fn selection_finish(&mut self) {
+        match self.selection.as_mut() {
+            Some(selection) if selection.is_empty() => self.selection = None,
+            Some(selection) => selection.copy_pending = true,
+            None => return,
+        }
+        self.rerender.update_draw();
+    }
+
+    pub fn selection_clear(&mut self) {
+        if self.selection.take().is_some() {
+            self.rerender.update_draw();
+        }
+    }
+
+    /// The selection, if it is in the given pane
+    pub fn get_selection(&self, pane: SelectPane) -> Option<Selection> {
+        self.selection.filter(|i| i.pane == pane)
+    }
+
+    /// Mark the pending copy as served, so the text is only read out once
+    pub fn selection_copied(&mut self, text: String) {
+        if let Some(selection) = self.selection.as_mut() {
+            selection.copy_pending = false;
+        }
+        if !text.is_empty() {
+            self.clipboard = Some(text);
+        }
+    }
+
+    /// Take any text waiting to go to the clipboard
+    pub fn take_clipboard(&mut self) -> Option<String> {
+        self.clipboard.take()
     }
     /// Increase the height of the log panel, then rerender
     pub fn log_height_increase(&mut self) {

@@ -11,7 +11,7 @@ use ratatui::{
 use crate::{
     app_data::AppData,
     config::AppColors,
-    ui::{FrameData, GuiState, SelectablePanel, Status},
+    ui::{FrameData, GuiState, SelectablePanel, Status, selection::SelectPane},
 };
 
 use super::{SELECT_ARROW, generate_block};
@@ -72,6 +72,8 @@ pub fn draw(
             }
         }
     }
+
+    super::draw_selection(area, f, gui_state, SelectPane::Logs);
 }
 
 #[cfg(test)]

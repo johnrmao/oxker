@@ -176,6 +176,23 @@ impl ShellManager {
         }
     }
 
+    /// Send pasted text to the shell. The paste markers are only added when the
+    /// program on the far end has actually turned bracketed paste on, which is
+    /// what a real terminal does - sending them regardless would leave the
+    /// escapes sitting in the prompt of anything that hasn't.
+    pub fn send_paste(&self, text: &str) {
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let bracketed = session.parser.lock().screen().bracketed_paste();
+        let bytes = if bracketed {
+            format!("\x1b[200~{text}\x1b[201~").into_bytes()
+        } else {
+            text.as_bytes().to_vec()
+        };
+        session.input_tx.send(bytes).ok();
+    }
+
     /// End the session, if any, and allow a new one to be spawned
     pub fn clear(&mut self) {
         self.session = None;

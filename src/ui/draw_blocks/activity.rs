@@ -1,3 +1,4 @@
+use parking_lot::Mutex;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -6,7 +7,10 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 
-use crate::{config::AppColors, ui::FrameData};
+use crate::{
+    config::AppColors,
+    ui::{FrameData, GuiState, selection::SelectPane},
+};
 
 /// A meta line is one the wrapper injects: the `[claude HH:MM:SS name] …`
 /// command header and `… exit N` footer. Everything else is command output.
@@ -51,7 +55,13 @@ fn wrap_line(line: &str, width: usize) -> Vec<String> {
 /// log (mirrored `docker exec` command + output), shown beside the normal logs.
 /// Long lines are word-wrapped and the view is anchored to the bottom so the
 /// newest output is always visible and nothing is cut off horizontally.
-pub fn draw(area: Rect, colors: AppColors, f: &mut Frame, fd: &FrameData) {
+pub fn draw(
+    area: Rect,
+    colors: AppColors,
+    f: &mut Frame,
+    fd: &FrameData,
+    gui_state: &std::sync::Arc<Mutex<GuiState>>,
+) {
     let title = if fd.activity_title.is_empty() {
         " claude-activity ".to_owned()
     } else {
@@ -103,6 +113,8 @@ pub fn draw(area: Rect, colors: AppColors, f: &mut Frame, fd: &FrameData) {
     // Text is already wrapped to the inner width, so render it as-is.
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(paragraph, area);
+
+    super::draw_selection(area, f, gui_state, SelectPane::Activity);
 }
 
 #[cfg(test)]
