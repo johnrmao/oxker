@@ -42,6 +42,8 @@ enum KeyDescriptions {
     ScrollStart,
     ScrollV,
     SearchMode,
+    ShellAttach,
+    ShellToggle,
     SortCpu,
     SortHeader,
     SortId,
@@ -208,6 +210,20 @@ impl KeymapColumns {
                             .map(|i| i.to_string()),
                     ],
                     KeyDescriptions::MouseCapture,
+                ),
+                (
+                    vec![
+                        Some(keymap.shell_attach.0.to_string()),
+                        keymap.shell_attach.1.as_ref().map(|i| i.to_string()),
+                    ],
+                    KeyDescriptions::ShellAttach,
+                ),
+                (
+                    vec![
+                        Some(keymap.shell_toggle.0.to_string()),
+                        keymap.shell_toggle.1.as_ref().map(|i| i.to_string()),
+                    ],
+                    KeyDescriptions::ShellToggle,
                 ),
             ],
         }
@@ -481,6 +497,20 @@ impl KeymapColumns {
                     ],
                     KeyDescriptions::MouseCapture,
                 ),
+                (
+                    vec![
+                        Some(config.keymap.shell_attach.0.to_string()),
+                        config.keymap.shell_attach.1.as_ref().map(|i| i.to_string()),
+                    ],
+                    KeyDescriptions::ShellAttach,
+                ),
+                (
+                    vec![
+                        Some(config.keymap.shell_toggle.0.to_string()),
+                        config.keymap.shell_toggle.1.as_ref().map(|i| i.to_string()),
+                    ],
+                    KeyDescriptions::ShellToggle,
+                ),
             ],
         }
     }
@@ -550,6 +580,8 @@ impl KeyDescriptions {
             Self::ScrollSpeed => "increase scroll speed",
             Self::ScrollV => "scroll vertically",
             Self::SearchMode => "log search mode",
+            Self::ShellAttach => "type into the attached shell",
+            Self::ShellToggle => "swap the shell pane for the logs",
             Self::SortHeader => "sort by header - or click header",
             Self::SortStop => "stop sort",
             Self::SortCpu => "sort by CPU",
@@ -896,7 +928,7 @@ mod tests {
     /// This test is incredibly annoying
     /// println!("{} {} {} {} {}", row_index, result_cell_index, result_cell.symbol(), result_cell.bg, result_cell.fg);
     fn test_draw_blocks_help() {
-        let mut setup = test_setup(118, 25, true, true);
+        let mut setup = test_setup(118, 27, true, true);
         setup.app_data.lock().config.dir_save = Some(PathBuf::from("/test_dir"));
         setup.app_data.lock().config.dir_config =
             Some(PathBuf::from("/home/user/.config/oxker/config.toml"));
@@ -915,9 +947,9 @@ mod tests {
             for (result_cell_index, result_cell) in result_row.iter().enumerate() {
                 match (row_index, result_cell_index) {
                     // The space around the popup
-                    (0|24, _) | (_, 0|117) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
+                    (0|26, _) | (_, 0|117) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
                     // The borders
-                    (1|23, 1..=23) | (_, 1|116) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
+                    (1|25, 1..=23) | (_, 1|116) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
                     // The oxker logo
                     // The description
                     (2..=10, 3..=58)|
@@ -932,7 +964,7 @@ mod tests {
                     // Left column
                     (13..=22, 4..=24) |
                     // Right Column
-                    (13..=21,59..=69)
+                    (13..=23,59..=69)
                      => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::White)),
                     _ =>  assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
                 };
@@ -942,7 +974,7 @@ mod tests {
 
     #[test]
     fn test_draw_blocks_help_no_config() {
-        let mut setup = test_setup(116, 25, true, true);
+        let mut setup = test_setup(116, 27, true, true);
         setup.app_data.lock().config.dir_save = Some(PathBuf::from("/test_dir"));
         setup.app_data.lock().config.show_timestamp = true;
 
@@ -959,9 +991,9 @@ mod tests {
             for (result_cell_index, result_cell) in result_row.iter().enumerate() {
                 match (row_index, result_cell_index) {
                     // The space around the popup
-                    (0|24, _) | (_, 0|115) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
+                    (0|26, _) | (_, 0|115) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
                     // The borders
-                    (1|23, 1..=23) | (_, 1|114) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
+                    (1|25, 1..=23) | (_, 1|114) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
                     // The oxker logo
                     // The description
                     (2..=10, 3..=57)|
@@ -974,7 +1006,7 @@ mod tests {
                     // Left column
                     (13..=22, 3..=23) |
                     // Right Column
-                    (13..=21,58..=68)
+                    (13..=23,58..=68)
                      => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::White)),
                     _ =>  assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
             };
@@ -984,7 +1016,7 @@ mod tests {
 
     #[test]
     fn test_draw_blocks_help_no_save() {
-        let mut setup = test_setup(118, 25, true, true);
+        let mut setup = test_setup(118, 27, true, true);
         setup.app_data.lock().config.dir_config =
             Some(PathBuf::from("/home/user/.config/oxker/config.toml"));
         setup.app_data.lock().config.show_timestamp = true;
@@ -1002,9 +1034,9 @@ mod tests {
             for (result_cell_index, result_cell) in result_row.iter().enumerate() {
                 match (row_index, result_cell_index) {
                     // The space around the popup
-                    (0|24, _) | (_, 0|117) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
+                    (0|26, _) | (_, 0|117) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
                     // The borders
-                    (1|23, 1..=23) | (_, 1|116) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
+                    (1|25, 1..=23) | (_, 1|116) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
                     // The oxker logo
                     // The description
                     (2..=10, 3..=58)|
@@ -1017,7 +1049,7 @@ mod tests {
                     // Left column
                     (13..=22, 4..=24) |
                     // Right Column
-                    (13..=21,59..=69)
+                    (13..=23,59..=69)
                      => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::White)),
                     _ =>  assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
                 };
@@ -1027,7 +1059,7 @@ mod tests {
 
     #[test]
     fn test_draw_blocks_help_no_timezone() {
-        let mut setup = test_setup(118, 25, true, true);
+        let mut setup = test_setup(118, 27, true, true);
         setup.app_data.lock().config.dir_save = Some(PathBuf::from("/test_dir"));
         setup.app_data.lock().config.dir_config =
             Some(PathBuf::from("/home/user/.config/oxker/config.toml"));
@@ -1045,9 +1077,9 @@ mod tests {
             for (result_cell_index, result_cell) in result_row.iter().enumerate() {
                 match (row_index, result_cell_index) {
                     // The space around the popup
-                    (0|24, _) | (_, 0|117) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
+                    (0|26, _) | (_, 0|117) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
                     // The borders
-                    (1|23, 1..=23) | (_, 1|116) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
+                    (1|25, 1..=23) | (_, 1|116) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
                     // The oxker logo
                     // The description
                     (2..=10, 3..=58)|
@@ -1060,7 +1092,7 @@ mod tests {
                     // Left column
                     (13..=22, 4..=24) |
                     // Right Column
-                    (13..=21,59..=69)
+                    (13..=23,59..=69)
                      => assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::White)),
                     _ =>  assert_eq!((result_cell.bg, result_cell.fg), (Color::Magenta, Color::Black)),
                 };
@@ -1070,7 +1102,7 @@ mod tests {
 
     #[test]
     fn test_draw_blocks_help_custom_color() {
-        let mut setup = test_setup(118, 25, true, true);
+        let mut setup = test_setup(118, 27, true, true);
         setup.app_data.lock().config.dir_save = Some(PathBuf::from("/test_dir"));
         setup.app_data.lock().config.dir_config =
             Some(PathBuf::from("/home/user/.config/oxker/config.toml"));
@@ -1096,9 +1128,9 @@ mod tests {
             for (result_cell_index, result_cell) in result_row.iter().enumerate() {
                 match (row_index, result_cell_index) {
                     // The space around the popup
-                    (0|24, _) | (_, 0|117) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
+                    (0|26, _) | (_, 0|117) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Reset, Color::Reset)),
                     // The borders
-                    (1|23, 1..=23) | (_, 1|116) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Black, Color::Red)),
+                    (1|25, 1..=23) | (_, 1|116) => assert_eq!((result_cell.bg, result_cell.fg), (Color::Black, Color::Red)),
                     // The oxker logo
                     // The description
                     (2..=10, 3..=58)|
@@ -1113,7 +1145,7 @@ mod tests {
                     // Left column
                     (13..=22, 4..=24) |
                     // Right Column
-                    (13..=21,59..=69)
+                    (13..=23,59..=69)
                      => assert_eq!((result_cell.bg, result_cell.fg), (Color::Black, Color::Yellow)),
                     _ =>  assert_eq!((result_cell.bg, result_cell.fg), (Color::Black, Color::Red)),
                 };
@@ -1166,6 +1198,8 @@ mod tests {
             sort_reset: (KeyCode::Char('4'), None),
             toggle_help: (KeyCode::Char('5'), None),
             toggle_mouse_capture: (KeyCode::Char('6'), None),
+            shell_attach: (KeyCode::Char('7'), None),
+            shell_toggle: (KeyCode::Char('8'), None),
         };
 
         setup.app_data.lock().config.keymap = keymap;
@@ -1225,6 +1259,8 @@ mod tests {
             sort_reset: (KeyCode::F(3), Some(KeyCode::F(4))),
             toggle_help: (KeyCode::F(5), Some(KeyCode::F(6))),
             toggle_mouse_capture: (KeyCode::F(7), Some(KeyCode::F(8))),
+            shell_attach: (KeyCode::F(9), Some(KeyCode::F(10))),
+            shell_toggle: (KeyCode::F(11), Some(KeyCode::F(12))),
         };
 
         setup.app_data.lock().config.keymap = keymap;
@@ -1284,6 +1320,8 @@ mod tests {
             sort_reset: (KeyCode::F(3), None),
             toggle_help: (KeyCode::F(5), Some(KeyCode::F(6))),
             toggle_mouse_capture: (KeyCode::F(7), None),
+            shell_attach: (KeyCode::F(9), None),
+            shell_toggle: (KeyCode::F(10), None),
         };
 
         setup.app_data.lock().config.keymap = keymap;

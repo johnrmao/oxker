@@ -11,6 +11,7 @@ use crate::config::AppColors;
 
 use super::{FrameData, GuiState, SelectablePanel, Status, gui_state::Region};
 
+pub mod activity;
 pub mod chart_bandwidth;
 pub mod chart_cpu_mem;
 pub mod commands;
@@ -26,6 +27,7 @@ pub mod logs;
 pub mod popup;
 pub mod ports;
 pub mod search_logs;
+pub mod shell;
 
 pub const NAME_TEXT: &str = r#"                         88                              
                          88                              
@@ -168,6 +170,11 @@ pub mod tests {
 
             let (filter_by, filter_term) = app_data.get_filter();
             Self {
+                activity_available: app_data.activity.available,
+                activity_lines: app_data.activity.lines.iter().cloned().collect(),
+                activity_title: app_data
+                    .get_selected_container()
+                    .map_or_else(String::new, |c| c.name.get().to_owned()),
                 chart_data: app_data.get_chart_data(),
                 color_logs: app_data.config.color_logs,
                 columns: app_data.get_width(),
@@ -188,6 +195,9 @@ pub mod tests {
                 port_max_lens: app_data.get_longest_port(),
                 ports: app_data.get_selected_ports(),
                 selected_panel: gui_data.get_selected_panel(),
+                shell_attached: gui_data.get_status().contains(&Status::Shell),
+                shell_visible: false,
+                shell_title: String::new(),
                 sorted_by: app_data.get_sorted(),
                 status: gui_data.get_status(),
             }

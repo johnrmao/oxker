@@ -1,0 +1,10 @@
+---
+source: src/ui/draw_blocks/shell.rs
+expression: setup.terminal.backend()
+---
+"╭ shell ▸ container_1 ──── ● attached — ctrl + o to detach ╮"
+"│                  connecting to a shell                   │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"╰──────────────────────────────────────────────────────────╯"

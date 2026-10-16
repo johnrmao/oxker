@@ -1,0 +1,10 @@
+---
+source: src/ui/draw_blocks/shell.rs
+expression: setup.terminal.backend()
+---
+"╭ shell ──────────────────────────────── a attach · t logs ╮"
+"│                  connecting to a shell                   │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"╰──────────────────────────────────────────────────────────╯"

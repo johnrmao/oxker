@@ -172,6 +172,8 @@ pub enum Status {
     Inspect,
     Logs,
     SearchLogs,
+    /// The keyboard is handed to the shell attached to the selected container
+    Shell,
 }
 
 #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]

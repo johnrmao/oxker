@@ -1,13 +1,19 @@
 use bollard::models::{ContainerInspectResponse, ContainerSummary};
 use core::fmt;
 use parking_lot::Mutex;
-use ratatui::{layout::Size, text::Text, widgets::ListState};
+use ratatui::{
+    layout::Size,
+    style::Style,
+    text::{Line, Span, Text},
+    widgets::ListState,
+};
 use std::{
     hash::Hash,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+mod activity;
 mod container_state;
 
 use crate::{
@@ -15,8 +21,10 @@ use crate::{
     app_error::AppError,
     config::Config,
     docker_data::StatsData,
+    shell::ShellManager,
     ui::{GuiState, Rerender, Status, log_sanitizer},
 };
+pub use activity::ActivityState;
 pub use container_state::*;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -155,7 +163,7 @@ impl From<ContainerInspectResponse> for InspectData {
 }
 
 /// Global app_state, stored in an Arc<Mutex>
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg(not(test))]
 pub struct AppData {
     containers: StatefulList<ContainerItem>,
@@ -166,12 +174,16 @@ pub struct AppData {
     rerender: Arc<Rerender>,
     sorted_by: Option<(Header, SortedOrder)>,
     current_sorted_id: Vec<ContainerId>,
+    pub activity: ActivityState,
+    pub shell: ShellManager,
     pub config: Config,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg(test)]
 pub struct AppData {
+    pub activity: ActivityState,
+    pub shell: ShellManager,
     pub config: Config,
     pub containers: StatefulList<ContainerItem>,
     pub error: Option<AppError>,
@@ -187,6 +199,8 @@ impl AppData {
     /// Generate a default app_state
     pub fn new(config: Config, redraw: &Arc<Rerender>) -> Self {
         Self {
+            activity: ActivityState::new(),
+            shell: ShellManager::new(),
             config,
             containers: StatefulList::new(vec![]),
             current_sorted_id: vec![],
@@ -197,6 +211,11 @@ impl AppData {
             rerender: Arc::clone(redraw),
             sorted_by: None,
         }
+    }
+
+    /// Request a UI redraw on the next poll cycle
+    pub fn request_redraw(&self) {
+        self.rerender.update_draw();
     }
 
     /// Current time as unix timestamp
@@ -1086,32 +1105,36 @@ impl AppData {
         let cs = self.config.log_search_case_sensitive;
 
         let show_timestamp = self.config.show_timestamp;
+        let ts_color = self.config.app_colors.logs.timestamp;
 
         if let Some(container) = self.get_any_container_by_id(id)
             && !container.is_oxker
         {
             container.last_updated = Self::get_systemtime();
             let current_len = container.logs.len();
-            for mut i in logs {
+            for i in logs {
                 let (log_tz, log_content) = LogsTz::splitter(i.as_str());
-                if show_timestamp {
-                    i = format!(
-                        "{} {}",
-                        log_tz
-                            .display_with_formatter(config_tz.as_ref(), &format)
-                            .unwrap_or_else(|| log_tz.to_string()),
-                        log_content
-                    );
-                } else {
-                    i = log_content;
-                }
-                let lines = if color {
-                    log_sanitizer::colorize_logs(&i)
+                let mut lines = if color {
+                    log_sanitizer::colorize_logs(&log_content)
                 } else if raw {
-                    log_sanitizer::raw(&i)
+                    log_sanitizer::raw(&log_content)
                 } else {
-                    log_sanitizer::remove_ansi(&i)
+                    log_sanitizer::remove_ansi(&log_content)
                 };
+                // The timestamp is styled separately from the log content, so it
+                // stays readable as its own column and can't be recoloured by
+                // whatever ansi the container itself emitted
+                if show_timestamp {
+                    let tz = log_tz
+                        .display_with_formatter(config_tz.as_ref(), &format)
+                        .unwrap_or_else(|| log_tz.to_string());
+                    let span = Span::styled(format!("{tz} "), Style::default().fg(ts_color));
+                    if let Some(first) = lines.first_mut() {
+                        first.spans.insert(0, span);
+                    } else {
+                        lines.push(Line::from(span));
+                    }
+                }
                 container.logs.insert(Text::from(lines), log_tz, cs);
             }
 

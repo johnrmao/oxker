@@ -51,6 +51,8 @@ optional_config_struct!(
     log_section_toggle,
     quit,
     save_logs,
+    shell_attach,
+    shell_toggle,
     scroll_down,
     scroll_end,
     scroll_start,
@@ -88,6 +90,8 @@ config_struct!(
     log_section_toggle,
     quit,
     save_logs,
+    shell_attach,
+    shell_toggle,
     scroll_down,
     scroll_end,
     scroll_start,
@@ -126,6 +130,8 @@ impl Keymap {
             log_section_toggle: (KeyCode::Char('\\'), None),
             quit: (KeyCode::Char('q'), None),
             save_logs: (KeyCode::Char('s'), None),
+            shell_attach: (KeyCode::Char('a'), None),
+            shell_toggle: (KeyCode::Char('t'), None),
             scroll_down: (KeyCode::Down, Some(KeyCode::Char('j'))),
             scroll_end: (KeyCode::End, None),
             scroll_many: KeyModifiers::CONTROL,
@@ -181,6 +187,8 @@ impl From<Option<ConfigKeymap>> for Keymap {
 
         if let Some(ck) = value {
             update_keymap(ck.clear, &mut keymap.clear, &mut clash);
+            update_keymap(ck.shell_attach, &mut keymap.shell_attach, &mut clash);
+            update_keymap(ck.shell_toggle, &mut keymap.shell_toggle, &mut clash);
             update_keymap(ck.delete_deny, &mut keymap.delete_deny, &mut clash);
             update_keymap(ck.delete_confirm, &mut keymap.delete_confirm, &mut clash);
             update_keymap(
@@ -403,6 +411,8 @@ mod tests {
             log_section_toggle: None,
             quit: None,
             save_logs: None,
+            shell_attach: None,
+            shell_toggle: None,
             scroll_down: None,
             scroll_end: None,
             scroll_start: None,
@@ -450,6 +460,8 @@ mod tests {
             log_section_toggle: gen_v(("u", "v")),
             quit: gen_v(("w", "x")),
             save_logs: gen_v(("y", "z")),
+            shell_attach: None,
+            shell_toggle: None,
             scroll_down: gen_v(("3", "4")),
             scroll_end: gen_v(("5", "6")),
             scroll_many: Some(vec!["alt".to_owned()]),
@@ -489,6 +501,8 @@ mod tests {
             log_section_toggle: (KeyCode::Char('u'), Some(KeyCode::Char('v'))),
             quit: (KeyCode::Char('w'), Some(KeyCode::Char('x'))),
             save_logs: (KeyCode::Char('y'), Some(KeyCode::Char('z'))),
+            shell_attach: (KeyCode::Char('a'), None),
+            shell_toggle: (KeyCode::Char('t'), None),
             scroll_down: (KeyCode::Char('3'), Some(KeyCode::Char('4'))),
             scroll_end: (KeyCode::Char('5'), Some(KeyCode::Char('6'))),
             scroll_many: KeyModifiers::ALT,

@@ -213,6 +213,7 @@ impl From<Option<ConfigColors>> for AppColors {
             if let Some(cl) = config_colors.logs {
                 Self::map_color(cl.background.as_deref(), &mut app_colors.logs.background);
                 Self::map_color(cl.text.as_deref(), &mut app_colors.logs.text);
+                Self::map_color(cl.timestamp.as_deref(), &mut app_colors.logs.timestamp);
             }
 
             // Container State
@@ -263,7 +264,7 @@ optional_config_struct!(
     ConfigFilter, background, text, selected_filter_background, selected_filter_text, highlight;
      ConfigLogSearch, background, text, button_text, highlight;
     ConfigHeadersBar, background, loading_spinner, text, text_selected;
-    ConfigLogs, background, text
+    ConfigLogs, background, text, timestamp
 );
 
 config_struct!(
@@ -279,7 +280,7 @@ config_struct!(
     Filter, background, text, selected_filter_background, selected_filter_text, highlight;
     LogSearch, background, text, button_text, highlight;
     HeadersBar, background, text_selected, loading_spinner, text;
-    Logs, background, text;
+    Logs, background, text, timestamp;
     PopupDelete, background, text, text_highlight;
     PopupError, background, text;
     PopupHelp, background, text, text_highlight;
@@ -461,6 +462,7 @@ impl Logs {
         Self {
             background: Color::Reset,
             text: Color::Reset,
+            timestamp: Color::DarkGray,
         }
     }
 }

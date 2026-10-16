@@ -24,6 +24,7 @@ use crate::{
     config,
     docker_data::DockerMessage,
     exec::{ExecMode, tty_readable},
+    shell::{DETACH, DETACH_TEXT, key_to_bytes},
     ui::{DeleteButton, GuiState, SelectablePanel, Status, Ui},
 };
 pub use message::InputMessages;
@@ -73,6 +74,9 @@ impl InputHandler {
 
                     if contains(Status::DeleteConfirm) {
                         self.button_intersect(mouse_event).await;
+                    } else if contains(Status::Shell) {
+                        // Whilst attached the pane belongs to the shell, so
+                        // scrolling or clicking must not move oxker's panels
                     } else if !contains(Status::Error)
                         && !contains(Status::Help)
                         && !contains(Status::DeleteConfirm)
@@ -621,6 +625,54 @@ impl InputHandler {
         self.gui_state.lock().toggle_show_logs();
     }
 
+    /// Hand the keyboard to the shell attached to the selected container. Only
+    /// possible whilst there is a live session to hand it to.
+    fn shell_attach_key(&self) {
+        if self.app_data.lock().shell.alive() {
+            self.gui_state.lock().status_push(Status::Shell);
+            self.gui_state
+                .lock()
+                .set_info_box(&format!("shell attached, {DETACH_TEXT} to detach"));
+        } else {
+            self.gui_state.lock().set_info_box("no shell to attach to");
+        }
+    }
+
+    /// Give the keyboard back to oxker
+    fn shell_detach(&self) {
+        self.gui_state.lock().status_del(Status::Shell);
+    }
+
+    /// Swap the main pane between the live shell and the container's logs
+    fn shell_toggle_key(&self) {
+        let shell = self.app_data.lock().shell.toggle();
+        self.shell_detach();
+        self.gui_state.lock().set_info_box(if shell {
+            "showing shell"
+        } else {
+            "showing logs"
+        });
+    }
+
+    /// Whilst attached, every key press belongs to the shell except the detach
+    /// combination. If the shell has exited in the meantime, detach instead of
+    /// swallowing the user's keys.
+    fn handle_shell(&self, key_code: KeyCode, modifier: KeyModifiers) {
+        if (key_code, modifier) == DETACH {
+            self.shell_detach();
+            return;
+        }
+        let data = self.app_data.lock();
+        if data.shell.alive() {
+            if let Some(bytes) = key_to_bytes(key_code, modifier) {
+                data.shell.send(bytes);
+            }
+        } else {
+            drop(data);
+            self.shell_detach();
+        }
+    }
+
     /// Handle button presses in all other scenarios
     #[allow(clippy::cognitive_complexity)]
     async fn handle_others(&mut self, key_code: KeyCode, modifier: KeyModifiers) {
@@ -664,6 +716,18 @@ impl InputHandler {
                 || self.keymap.save_logs.1 == Some(key_code) =>
             {
                 self.save_key().await;
+            }
+
+            _ if self.keymap.shell_attach.0 == key_code
+                || self.keymap.shell_attach.1 == Some(key_code) =>
+            {
+                self.shell_attach_key();
+            }
+
+            _ if self.keymap.shell_toggle.0 == key_code
+                || self.keymap.shell_toggle.1 == Some(key_code) =>
+            {
+                self.shell_toggle_key();
             }
 
             _ if self.keymap.inspect.0 == key_code || self.keymap.inspect.1 == Some(key_code) => {
@@ -755,17 +819,22 @@ impl InputHandler {
         let contains_delete = contains(Status::DeleteConfirm);
         let contains_search_logs = contains(Status::SearchLogs);
         let contains_inspect = contains(Status::Inspect);
+        let contains_shell = contains(Status::Shell);
 
         if !contains_exec {
             let is_q = || key_code == self.keymap.quit.0 || Some(key_code) == self.keymap.quit.1;
-            if key_modifier == KeyModifiers::CONTROL && key_code == KeyCode::Char('c')
-                || is_q() && !contains_filter && !contains_search_logs
+            if !contains_shell
+                && (key_modifier == KeyModifiers::CONTROL && key_code == KeyCode::Char('c')
+                    || is_q() && !contains_filter && !contains_search_logs)
             {
-                // Always just quit on Ctrl + c/C or q/Q, unless in filter/search_logs mode, i.e. when user inmput can include the q key
+                // Always just quit on Ctrl + c/C or q/Q, unless in filter/search_logs mode, i.e. when user inmput can include the q key,
+                // or attached to a shell, where both are the shell's to handle
                 self.quit();
             }
 
-            if contains_error {
+            if contains_shell {
+                self.handle_shell(key_code, key_modifier);
+            } else if contains_error {
                 self.handle_error(key_code);
             } else if contains_help {
                 self.handle_help(key_code);

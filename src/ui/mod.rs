@@ -301,6 +301,9 @@ impl Ui {
 #[derive(Debug, Clone)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct FrameData {
+    activity_available: bool,
+    activity_lines: Vec<String>,
+    activity_title: String,
     chart_data: Option<ChartsData>,
     color_logs: bool,
     columns: Columns,
@@ -321,6 +324,12 @@ pub struct FrameData {
     ports: Option<(Vec<ContainerPorts>, State)>,
     selected_panel: SelectablePanel,
     scroll_title: Option<String>,
+    /// The keyboard is currently being forwarded to the shell
+    shell_attached: bool,
+    /// Draw the shell in the log area instead of the container's logs
+    shell_visible: bool,
+    /// Name of the container the shell belongs to
+    shell_title: String,
     sorted_by: Option<(Header, SortedOrder)>,
     status: HashSet<Status>,
 }
@@ -330,7 +339,23 @@ impl From<&Ui> for FrameData {
         let (mut app_data, gui_data) = (ui.app_data.lock(), ui.gui_state.lock());
 
         let (filter_by, filter_term) = app_data.get_filter();
+        let selected_name = app_data
+            .get_selected_container()
+            .map_or_else(String::new, |c| c.name.get().to_owned());
+        // The shell replaces the logs only for a container that is actually
+        // running - a stopped container has nothing to exec into, so its logs
+        // are what's worth showing
+        let shell_visible = app_data.shell.enabled()
+            && app_data
+                .get_selected_container_id_state_name()
+                .is_some_and(|(_, state, _)| state.is_alive());
         Self {
+            activity_available: app_data.activity.available,
+            activity_lines: app_data.activity.lines.iter().cloned().collect(),
+            activity_title: selected_name.clone(),
+            shell_attached: gui_data.get_status().contains(&Status::Shell),
+            shell_visible,
+            shell_title: selected_name,
             chart_data: app_data.get_chart_data(),
             color_logs: app_data.config.color_logs,
             columns: app_data.get_width(),
@@ -425,14 +450,28 @@ fn draw_frame(
         draw_blocks::containers::draw(app_data, containers_commands[0], colors, f, fd, gui_state);
 
         if fd.show_logs {
-            draw_blocks::logs::draw(
-                app_data,
-                containers_logs_section[1],
-                colors,
-                f,
-                fd,
-                gui_state,
-            );
+            // The main pane is the live shell whilst the container is running,
+            // and the container's logs once it isn't
+            let main_pane = |rect, f: &mut Frame| {
+                if fd.shell_visible {
+                    draw_blocks::shell::draw(app_data, rect, colors, f, fd, keymap);
+                } else {
+                    draw_blocks::logs::draw(app_data, rect, colors, f, fd, gui_state);
+                }
+            };
+
+            if fd.activity_available {
+                // Split the log area: shell/logs on the left, the
+                // claude-activity feed for the selected container on the right.
+                let log_activity = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints(draw_blocks::CONSTRAINT_50_50)
+                    .split(containers_logs_section[1]);
+                main_pane(log_activity[0], f);
+                draw_blocks::activity::draw(log_activity[1], colors, f, fd);
+            } else {
+                main_pane(containers_logs_section[1], f);
+            }
         }
 
         if let Some(id) = fd.delete_confirm.as_ref() {

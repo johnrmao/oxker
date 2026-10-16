@@ -21,6 +21,7 @@ mod config;
 mod docker_data;
 mod exec;
 mod input_handler;
+mod shell;
 mod ui;
 
 use ui::{GuiState, Rerender, Status, Ui};
@@ -85,6 +86,28 @@ async fn docker_init(
     }
 }
 
+/// Spawn a lightweight task that follows the selected container's activity log
+/// (`$HOME/.config/claude-activity/logs/<name>.log`) so it can be shown in its
+/// own pane. Requests a redraw whenever new lines arrive.
+fn activity_init(app_data: &Arc<Mutex<AppData>>, is_running: &Arc<AtomicBool>) {
+    let app_data = Arc::clone(app_data);
+    let is_running = Arc::clone(is_running);
+    tokio::spawn(async move {
+        while is_running.load(Ordering::SeqCst) {
+            {
+                let mut data = app_data.lock();
+                let selected = data
+                    .get_selected_container()
+                    .map(|c| c.name.get().to_owned());
+                if data.activity.poll(selected.as_deref()) {
+                    data.request_redraw();
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
+    });
+}
+
 /// Create data for, and then spawn a tokio thread, for the input handler
 fn handler_init(
     app_data: &Arc<Mutex<AppData>>,
@@ -118,6 +141,13 @@ async fn main() {
     if config.gui {
         let (input_tx, input_rx) = tokio::sync::mpsc::channel(32);
         handler_init(&app_data, &docker_tx, &gui_state, input_rx, &is_running);
+        activity_init(&app_data, &is_running);
+        tokio::spawn(shell::run(
+            Arc::clone(&app_data),
+            docker_tx.clone(),
+            Arc::clone(&is_running),
+            Arc::clone(&redraw),
+        ));
         Ui::start(app_data, gui_state, input_tx, is_running, redraw).await;
     } else {
         info!("in debug mode\n");
@@ -213,6 +243,8 @@ mod tests {
 
     pub fn gen_appdata(containers: &[ContainerItem]) -> AppData {
         AppData {
+            activity: crate::app_data::ActivityState::new(),
+            shell: crate::shell::ShellManager::new(),
             containers: StatefulList::new(containers.to_vec()),
             hidden_containers: vec![],
             current_sorted_id: vec![],
