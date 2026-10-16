@@ -481,6 +481,12 @@ fn draw_frame(
         if fd.show_logs {
             // The main pane is the live shell whilst the container is running,
             // and the container's logs once it isn't
+            // The shell isn't a selectable panel, so a lingering selection of
+            // the logs panel underneath it would show nowhere on screen
+            if fd.shell_visible {
+                gui_state.lock().unselect_logs_panel();
+            }
+
             let main_pane = |rect, f: &mut Frame| {
                 if fd.shell_visible {
                     draw_blocks::shell::draw(app_data, rect, colors, f, fd, gui_state, keymap);
@@ -558,5 +564,5 @@ fn draw_frame(
 
     // The frame is done, so the panes it registered as text-selectable are now
     // a complete set and safe for a mouse press to be tested against
-    gui_state.lock().commit_select_areas();
+    gui_state.lock().commit_areas();
 }

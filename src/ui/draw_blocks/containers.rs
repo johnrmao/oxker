@@ -165,10 +165,12 @@ mod tests {
         let mut setup = test_setup(40, 6, true, true);
         setup.app_data.lock().containers = StatefulList::new(vec![]);
 
+        // With no containers the commands panel isn't drawn and Tab skips the
+        // logs panel, so selecting it directly is the only way off Containers
         setup
             .gui_state
             .lock()
-            .selectable_panel_next(&setup.app_data);
+            .set_logs_panel_selected(&setup.app_data);
         let fd = FrameData::from((&setup.app_data, &setup.gui_state));
         let colors = setup.app_data.lock().config.app_colors;
 

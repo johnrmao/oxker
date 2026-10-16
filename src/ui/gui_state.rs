@@ -34,18 +34,21 @@ impl SelectablePanel {
             Self::Commands => "",
         }
     }
+    /// The tab order, which deliberately skips Logs. The log area may be
+    /// showing the shell or the activity feed rather than the logs, neither of
+    /// which is a panel, so tabbing onto it would select something the user
+    /// cannot see. The shell is reached with its own attach key instead, and
+    /// the logs panel by clicking it.
     pub const fn next(self) -> Self {
         match self {
             Self::Containers => Self::Commands,
-            Self::Commands => Self::Logs,
-            Self::Logs => Self::Containers,
+            Self::Commands | Self::Logs => Self::Containers,
         }
     }
     pub const fn prev(self) -> Self {
         match self {
-            Self::Containers => Self::Logs,
+            Self::Containers | Self::Logs => Self::Commands,
             Self::Commands => Self::Containers,
-            Self::Logs => Self::Commands,
         }
     }
 }
@@ -194,6 +197,8 @@ pub struct GuiState {
     intersect_heading: HashMap<Header, Rect>,
     intersect_help: Option<Rect>,
     intersect_panel: HashMap<SelectablePanel, Rect>,
+    /// Panels registered so far by the frame currently being drawn
+    intersect_panel_pending: HashMap<SelectablePanel, Rect>,
     loading_handle: Option<CancellationToken>,
     loading_index: u8,
     loading_set: HashSet<Uuid>,
@@ -225,6 +230,7 @@ impl GuiState {
             intersect_heading: HashMap::new(),
             intersect_help: None,
             intersect_panel: HashMap::new(),
+            intersect_panel_pending: HashMap::new(),
             inspect_offset: ScrollOffset::default(),
             inspect_offset_max: ScrollOffset::default(),
             loading_handle: None,
@@ -250,10 +256,12 @@ impl GuiState {
         self.select_areas_pending.insert(pane, inner);
     }
 
-    /// Publish the panes the finished frame drew, dropping any it did not -
-    /// the shell and logs panes share a slot, so only one is ever live.
-    pub fn commit_select_areas(&mut self) {
+    /// Publish what the finished frame actually drew, dropping anything it did
+    /// not. The log area holds either the logs panel or the shell, so without
+    /// this a click could still land on the panel that is no longer on screen.
+    pub fn commit_areas(&mut self) {
         self.select_areas = std::mem::take(&mut self.select_areas_pending);
+        self.intersect_panel = std::mem::take(&mut self.intersect_panel_pending);
     }
 
     /// Begin a selection if the press landed inside a pane that supports it.
@@ -415,6 +423,9 @@ impl GuiState {
     /// Clear panels hash map, so on resize can fix the sizes for mouse clicks
     pub fn clear_area_map(&mut self) {
         self.intersect_panel.clear();
+        self.intersect_panel_pending.clear();
+        self.select_areas.clear();
+        self.select_areas_pending.clear();
     }
 
     /// Set the rerender clear to true, to flush the screen and redraw
@@ -425,6 +436,16 @@ impl GuiState {
     /// Get the currently selected panel
     pub const fn get_selected_panel(&self) -> SelectablePanel {
         self.selected_panel
+    }
+
+    /// Drop a selection of the logs panel, for when the log area is drawing the
+    /// shell instead: the panel would be selected but have nothing on screen to
+    /// show it, which just reads as the selection having vanished.
+    pub fn unselect_logs_panel(&mut self) {
+        if self.selected_panel == SelectablePanel::Logs {
+            self.selected_panel = SelectablePanel::Containers;
+            self.rerender.update_draw();
+        }
     }
 
     /// Check if a given Rect (a clicked area of 1x1), interacts with any known panels
@@ -478,7 +499,7 @@ impl GuiState {
                     .or_insert(area);
             }
             Region::Panel(panel) => {
-                self.intersect_panel
+                self.intersect_panel_pending
                     .entry(panel)
                     .and_modify(|w| *w = area)
                     .or_insert(area);
@@ -569,9 +590,9 @@ impl GuiState {
     /// Change to next selectable panel
     pub fn selectable_panel_next(&mut self, app_data: &Arc<Mutex<AppData>>) {
         self.selected_panel = self.selected_panel.next();
-        if (app_data.lock().get_container_len() == 0
-            && self.get_selected_panel() == SelectablePanel::Commands)
-            || (self.log_height == 0 && self.get_selected_panel() == SelectablePanel::Logs)
+        // The commands panel isn't drawn when there are no containers
+        if app_data.lock().get_container_len() == 0
+            && self.get_selected_panel() == SelectablePanel::Commands
         {
             self.selected_panel = self.selected_panel.next();
         }
@@ -659,5 +680,97 @@ impl GuiState {
     pub fn reset_info_box(&mut self) {
         self.info_box_text = None;
         self.rerender.update_draw();
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{GuiState, Rerender, SelectablePanel};
+
+    fn test_gui_state() -> GuiState {
+        GuiState::new(&Arc::new(Rerender::new()), true)
+    }
+
+    #[test]
+    /// Tab cycles between the containers and commands panels only, never onto
+    /// the logs panel, whose area may be showing the shell instead
+    fn test_selectable_panel_tab_order_skips_logs() {
+        let mut panel = SelectablePanel::Containers;
+        for _ in 0..4 {
+            panel = panel.next();
+            assert_ne!(panel, SelectablePanel::Logs);
+        }
+        assert_eq!(
+            SelectablePanel::Containers.next(),
+            SelectablePanel::Commands
+        );
+        assert_eq!(
+            SelectablePanel::Commands.next(),
+            SelectablePanel::Containers
+        );
+
+        let mut panel = SelectablePanel::Containers;
+        for _ in 0..4 {
+            panel = panel.prev();
+            assert_ne!(panel, SelectablePanel::Logs);
+        }
+        assert_eq!(
+            SelectablePanel::Containers.prev(),
+            SelectablePanel::Commands
+        );
+        assert_eq!(
+            SelectablePanel::Commands.prev(),
+            SelectablePanel::Containers
+        );
+    }
+
+    #[test]
+    /// A logs panel reached by clicking it is still left alone by Tab, and both
+    /// directions lead back out of it rather than sticking
+    fn test_selectable_panel_leaves_logs() {
+        assert_eq!(SelectablePanel::Logs.next(), SelectablePanel::Containers);
+        assert_eq!(SelectablePanel::Logs.prev(), SelectablePanel::Commands);
+    }
+
+    #[test]
+    /// Selecting the logs panel is dropped when the shell takes the log area,
+    /// since the selection would otherwise show nowhere
+    fn test_unselect_logs_panel() {
+        let mut gui_state = test_gui_state();
+        gui_state.selected_panel = SelectablePanel::Logs;
+        gui_state.unselect_logs_panel();
+        assert_eq!(gui_state.get_selected_panel(), SelectablePanel::Containers);
+
+        // Any other panel is left as it is
+        gui_state.selected_panel = SelectablePanel::Commands;
+        gui_state.unselect_logs_panel();
+        assert_eq!(gui_state.get_selected_panel(), SelectablePanel::Commands);
+    }
+
+    #[test]
+    /// A frame's panels only become clickable once that frame is complete, so a
+    /// pane the frame stopped drawing cannot still catch a click
+    fn test_commit_areas_drops_undrawn_panels() {
+        use super::{Rect, Region};
+        let mut gui_state = test_gui_state();
+        let area = Rect::new(0, 0, 10, 10);
+
+        gui_state.update_region_map(Region::Panel(SelectablePanel::Logs), area);
+        // Not committed yet, so a click finds nothing
+        gui_state.check_panel_intersect(Rect::new(1, 1, 1, 1));
+        assert_eq!(gui_state.get_selected_panel(), SelectablePanel::Containers);
+
+        gui_state.commit_areas();
+        gui_state.check_panel_intersect(Rect::new(1, 1, 1, 1));
+        assert_eq!(gui_state.get_selected_panel(), SelectablePanel::Logs);
+
+        // A frame that draws no panels clears them, as the shell pane does
+        gui_state.commit_areas();
+        gui_state.selected_panel = SelectablePanel::Containers;
+        gui_state.check_panel_intersect(Rect::new(1, 1, 1, 1));
+        assert_eq!(gui_state.get_selected_panel(), SelectablePanel::Containers);
     }
 }

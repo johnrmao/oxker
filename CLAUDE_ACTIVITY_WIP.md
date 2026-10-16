@@ -12,12 +12,13 @@ Four additions on top of oxker v0.13.4:
    release, and paste into the attached shell.
 
 ## Status: WORKING
-- `cargo build`, `cargo test` (238), `cargo clippy --all-targets`, `cargo fmt` all pass.
+- `cargo build`, `cargo test` (242), `cargo clippy --all-targets`, `cargo fmt` all pass.
 - Verified live via tmux capture against the `kali` container: shell prompt,
   typed commands, `ls --color` output, attach/detach, the `t` toggle back to
   logs, and the coloured timestamp all render correctly. Drag-select copies
   only the dragged pane (clamped at its edge, no borders, no neighbouring
-  pane), and single- and multi-line pastes reach the shell intact.
+  pane), single- and multi-line pastes reach the shell intact, and Tab
+  alternates between two panels without ever selecting the shell pane.
 
 ## 1. claude-activity pane
 - Host side: `~/.local/bin/docker` is a transparent wrapper (ahead of
@@ -37,6 +38,10 @@ Four additions on top of oxker v0.13.4:
 - Mechanics: a `docker exec` with `tty: true` over the existing bollard
   connection, output fed into a `vt100` emulator, rendered by `tui-term`'s
   `PseudoTerminal` widget. Full colour and cursor control, as if exec'd into.
+- Tab cycles **containers ↔ commands only**. The log area may be showing the
+  shell or the activity feed, neither of which is a panel, so tabbing onto it
+  selected something with nothing on screen to show it. The logs panel is still
+  reachable by clicking it, and the shell by its attach key.
 - Two separate pieces of state:
   - **visible** (`ShellManager::enabled`) — shell view vs logs view, toggled
     with `t`.
@@ -91,7 +96,10 @@ Four additions on top of oxker v0.13.4:
 - `src/ui/selection.rs` (new): the `Selection` shape, buffer text extraction,
   OSC 52 + base64, with unit tests.
 - `src/ui/draw_blocks/mod.rs`: `draw_selection`, called by all three panes.
-- `src/ui/gui_state.rs`: the selection, the pane registry, clipboard handoff.
+- `src/ui/gui_state.rs`: the selection, the pane registry, clipboard handoff,
+  the tab order, and `commit_areas` - which also fixed a latent bug where
+  `intersect_panel` was only cleared on resize, so a click in the shell pane
+  could still land on the logs panel that was no longer drawn.
 - `src/app_data/mod.rs`: `activity`/`shell` fields, coloured timestamp spans.
 - `src/ui/mod.rs`: FrameData gains the activity + shell fields; `draw_frame`
   picks shell vs logs for the main pane and splits off the activity pane.

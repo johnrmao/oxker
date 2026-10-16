@@ -129,14 +129,11 @@ mod tests {
             }
         }
 
+        // Tab deliberately skips the logs panel, so select it directly
         setup
             .gui_state
             .lock()
-            .selectable_panel_next(&setup.app_data);
-        setup
-            .gui_state
-            .lock()
-            .selectable_panel_next(&setup.app_data);
+            .set_logs_panel_selected(&setup.app_data);
         let fd = FrameData::from((&setup.app_data, &setup.gui_state));
 
         // When selected, has a blue border
